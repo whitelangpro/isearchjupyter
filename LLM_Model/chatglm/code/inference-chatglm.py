@@ -44,11 +44,11 @@ def preprocess(text):
 def postprocess(text):
     return text.replace("\\n", "\n").replace("\\t", "\t")
 
-def answer(text, sample=True, top_p=0.45, temperature=0.7,model=None):
+def answer(text, history=[], sample=True, top_p=0.45, temperature=0.01, model=None):
     text = preprocess(text)
-    response, history = model.chat(tokenizer, text, history=[])
+    response, history = model.chat(tokenizer, text, history=history, temperature=temperature)
     
-    return postprocess(response)
+    return postprocess(response), history
 
 
 def model_fn(model_dir):
@@ -89,7 +89,11 @@ def predict_fn(input_data, model):
     
 
     try:
-        result=answer(input_data['ask'], model=model)
+        if 'history' not in input_data:
+            history = []
+        else:
+            history = input_data['history']
+        result, history = answer(input_data['ask'], history=history, model=model)
         print(f'====result {result}====')
         return result
         
