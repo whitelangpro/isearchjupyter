@@ -31,10 +31,13 @@ import torch
 
 
 from torch import autocast
-#from transformers import T5Tokenizer, T5ForConditionalGeneration
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
-tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True)
+
+LLM_NAME = ""
+
+tokenizer = AutoTokenizer.from_pretrained(LLM_NAME)
+
 
 
 def preprocess(text):
@@ -44,11 +47,19 @@ def preprocess(text):
 def postprocess(text):
     return text.replace("\\n", "\n").replace("\\t", "\t")
 
-def answer(text, history=[], sample=True, top_p=0.45, temperature=0.01, model=None):
-    text = preprocess(text)
-    response, history = model.chat(tokenizer, text, history=history, temperature=temperature)
-    
-    return postprocess(response), history
+def answer(prompt, temperature, model):
+    inputs = tokenizer(prompt, return_tensors='pt').to('cuda')
+    inputs1 = {'input_ids':inputs['input_ids']}
+    tokens = model.generate(
+     **inputs1,
+     max_new_tokens=512,
+     do_sample=True,
+     temperature=temperature,
+     top_p=1.0,
+    )
+    answer = tokenizer.decode(tokens[0], skip_special_tokens=True)
+    # print(answer)
+    return answer
 
 
 def model_fn(model_dir):
@@ -57,8 +68,7 @@ def model_fn(model_dir):
     
     """
     print("=================model_fn_Start=================")
-    model = AutoModel.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True).half().cuda()
-    #model = model.to("cuda")
+    model = AutoModelForCausalLM.from_pretrained(LLM_NAME).half().cuda()
     print("=================model_fn_End=================")
     return model
 
@@ -77,8 +87,6 @@ def input_fn(request_body, request_content_type):
     return input_data
 
 
-
-
 def predict_fn(input_data, model):
     """
     Apply model to the incoming request
@@ -89,11 +97,12 @@ def predict_fn(input_data, model):
     
 
     try:
-        if 'history' not in input_data:
-            history = []
+        if 'temperature' not in input_data:
+            temperature = 0.5
         else:
-            history = input_data['history']
-        result, history = answer(input_data['ask'], history=history, model=model)
+            temperature = input_data['temperature']
+
+        result = answer(input_data['ask'], temperature=temperature, model=model)
         print(f'====result {result}====')
         return result
         
@@ -114,6 +123,3 @@ def output_fn(prediction, content_type):
             'answer': prediction
         }
     )
-
-
-
