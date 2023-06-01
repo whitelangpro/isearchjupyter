@@ -57,7 +57,7 @@ def load_file(filepath,language):
     return docs
 
 
-def init_embeddings(endpoint_name,region_name):
+def init_embeddings(endpoint_name,region_name,language: str = "chinese"):
     
     class ContentHandler(EmbeddingsContentHandler):
         content_type = "application/json"
@@ -69,9 +69,9 @@ def init_embeddings(endpoint_name,region_name):
 
         def transform_output(self, output: bytes) -> List[List[float]]:
             response_json = json.loads(output.read().decode("utf-8"))
-            if endpoint_name.find("text2vec-base-chinese") >= 0:
+            if language == "chinese":
                 return response_json[0][0][0]
-            elif endpoint_name.find("all-minilm") >= 0:
+            elif language == "english":
                 return response_json["vectors"][0]
 
     content_handler = ContentHandler()
@@ -140,11 +140,13 @@ class SmartSearchQA:
                  opensearch_port,
                  embedding_endpoint_name,
                  region,
-                 llm_endpoint_name: str = 'pytorch-inference-chatglm-v1',
-                 temperature: float = 0.01
+                 llm_endpoint_name: str = 'pytorch-inference-llm-v1',
+                 temperature: float = 0.01,
+                 language: str = "chinese"
                 ):
+        self.language = language
         self.llm = init_model(llm_endpoint_name,region,temperature)
-        embeddings = init_embeddings(embedding_endpoint_name,region)
+        embeddings = init_embeddings(embedding_endpoint_name,region,self.language)
         self.vector_store = init_vector_store(embeddings,
                                              opensearch_index_name,
                                              opensearch_host,
@@ -152,7 +154,7 @@ class SmartSearchQA:
                                              opensearch_user_name,
                                              opensearch_user_password)
         
-    def init_knowledge_vector(self,filepath: str or List[str], bulk_size: int = 10000, language: str = "chinese"):
+    def init_knowledge_vector(self,filepath: str or List[str], bulk_size: int = 10000):
         loaded_files = []
         failed_files = []
         if isinstance(filepath, str):
@@ -162,7 +164,7 @@ class SmartSearchQA:
             elif os.path.isfile(filepath):
                 file = os.path.split(filepath)[-1]
                 try:
-                    docs = load_file(filepath,language)
+                    docs = load_file(filepath,self.language)
                     print(f"{file} Loaded successfully")
                     loaded_files.append(filepath)
                 except Exception as e:
@@ -174,7 +176,7 @@ class SmartSearchQA:
                 for file in tqdm(os.listdir(filepath), desc="Load the file"):
                     fullfilepath = os.path.join(filepath, file)
                     try:
-                        docs += load_file(fullfilepath,language)
+                        docs += load_file(fullfilepath,self.language)
                         loaded_files.append(fullfilepath)
                     except Exception as e:
                         failed_files.append(file)
@@ -188,7 +190,7 @@ class SmartSearchQA:
             for file in filepath:
                 try:
                     print("begin to load file, file:",file,language)
-                    docs += load_file(file,language)
+                    docs += load_file(file,self.language)
                     print(f"{file} Loaded successfully")
                     loaded_files.append(file)
                 except Exception as e:
@@ -199,7 +201,7 @@ class SmartSearchQA:
             if self.vector_store is not None:
                 texts = [d.page_content for d in docs]
                 metadatas = [d.metadata for d in docs]
-                ids = self.vector_store.add_texts(texts, metadatas, bulk_size=bulk_size, language=language)
+                ids = self.vector_store.add_texts(texts, metadatas, bulk_size=bulk_size, language=self.language)
                 return loaded_files
             else:
                 print("Vector library is not specified, please specify the vector database")
