@@ -75,6 +75,7 @@ def _bulk_ingest_embeddings(
     index_name: str,
     embeddings: List[List[float]],
     texts: Iterable[str],
+    sentences: Iterable[str],
     metadatas: Optional[List[dict]] = None,
     vector_field: str = "vector_field",
     text_field: str = "text",
@@ -94,6 +95,7 @@ def _bulk_ingest_embeddings(
 
     for i, text in enumerate(texts):
         metadata = metadatas[i] if metadatas else {}
+        sentence = sentences[i] if sentences else ""
         _id = str(uuid.uuid4())
         request = {
             "_op_type": "index",
@@ -101,6 +103,7 @@ def _bulk_ingest_embeddings(
             vector_field: embeddings[i],
             text_field: text,
             "metadata": metadata,
+            "sentence": sentence,
             "_id": _id,
         }
         requests.append(request)
@@ -330,18 +333,21 @@ class OpenSearchVectorSearch(VectorStore):
             to "text".
         """
         language = _get_kwargs_value(kwargs, "language", "chinese")
-        embeddings,new_texts,new_metadatas = self.embedding_function.embed_documents(list(texts),list(metadatas),language=language)
+        embeddings,new_texts,new_metadatas,sentences = self.embedding_function.embed_documents(list(texts),list(metadatas),language=language)
         print("finish embedding, text len:",len(new_texts),len(embeddings))
         
         _validate_embeddings_and_bulk_size(len(embeddings), bulk_size)
-        text_field = _get_kwargs_value(kwargs, "text_field", "text")
+        # text_field = _get_kwargs_value(kwargs, "text_field", "text")
         dim = len(embeddings[0])
         engine = _get_kwargs_value(kwargs, "engine", "nmslib")
         space_type = _get_kwargs_value(kwargs, "space_type", "l2")
         ef_search = _get_kwargs_value(kwargs, "ef_search", 512)
         ef_construction = _get_kwargs_value(kwargs, "ef_construction", 512)
         m = _get_kwargs_value(kwargs, "m", 16)
-        vector_field = _get_kwargs_value(kwargs, "vector_field", "vector_field")
+        # vector_field = _get_kwargs_value(kwargs, "vector_field", "vector_field")
+
+        text_field = _get_kwargs_value(kwargs, "text_field", "paragraph")
+        vector_field = _get_kwargs_value(kwargs, "vector_field", "sentence_vector")
 
         mapping = _default_text_mapping(
             dim, engine, space_type, ef_search, ef_construction, m, vector_field
@@ -352,6 +358,7 @@ class OpenSearchVectorSearch(VectorStore):
             self.index_name,
             embeddings,
             new_texts,
+            sentences,
             new_metadatas,
             vector_field,
             text_field,
@@ -416,7 +423,7 @@ class OpenSearchVectorSearch(VectorStore):
             nearest neighbors; default: {"match_all": {}}
         """
         docs_with_scores = self.similarity_search_with_score(query, k, **kwargs)
-        return [doc[0] for doc in docs_with_scores]
+        return docs_with_scores
 
     def similarity_search_with_score(
         self, query: str, k: int = 4, **kwargs: Any
@@ -438,9 +445,12 @@ class OpenSearchVectorSearch(VectorStore):
         """
         embedding = self.embedding_function.embed_query(query)
         search_type = _get_kwargs_value(kwargs, "search_type", "approximate_search")
-        text_field = _get_kwargs_value(kwargs, "text_field", "text")
+        # text_field = _get_kwargs_value(kwargs, "text_field", "text")
         metadata_field = _get_kwargs_value(kwargs, "metadata_field", "metadata")
-        vector_field = _get_kwargs_value(kwargs, "vector_field", "vector_field")
+        # vector_field = _get_kwargs_value(kwargs, "vector_field", "vector_field")
+
+        text_field = _get_kwargs_value(kwargs, "text_field", "paragraph")
+        vector_field = _get_kwargs_value(kwargs, "vector_field", "sentence_vector")
 
         if search_type == "approximate_search":
             size = _get_kwargs_value(kwargs, "size", 4)
@@ -492,6 +502,9 @@ class OpenSearchVectorSearch(VectorStore):
                     else hit["_source"][metadata_field],
                 ),
                 hit["_score"],
+                hit["_source"]["sentence"][0] 
+                if isinstance(hit["_source"]["sentence"],list) 
+                else hit["_source"]["sentence"],
             )
             for hit in hits
         ]

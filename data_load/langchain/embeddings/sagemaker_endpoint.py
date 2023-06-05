@@ -191,6 +191,7 @@ class SagemakerEndpointEmbeddings(BaseModel, Embeddings):
         _chunk_size = 1
         append_num = 3
         texts_length = len(texts)
+        sentences = []
 
         for i in range(0, texts_length, _chunk_size):
             try:
@@ -205,11 +206,13 @@ class SagemakerEndpointEmbeddings(BaseModel, Embeddings):
                     text_result.append(text_append)
                 else:
                     text_result.append(texts[i: i+_chunk_size])
+                sentences.append(texts[i: i+_chunk_size])
                 metadatas_result.append(metadatas[i: i+_chunk_size][0])
+ 
             except Exception as e:
                 print("Embedding Error:",e)
 
-        return results,text_result,metadatas_result
+        return results,text_result,metadatas_result,sentences
 
     def embed_query(self, text: str) -> List[float]:
         """Compute query embeddings using a SageMaker inference endpoint.

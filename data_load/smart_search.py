@@ -20,6 +20,9 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain import SagemakerEndpoint
 from langchain.llms.sagemaker_endpoint import ContentHandlerBase
 from langchain.llms.sagemaker_endpoint import LLMContentHandler
+from langchain.chains.summarize import load_summarize_chain
+from langchain.memory import ConversationBufferMemory
+from langchain import ConversationChain, LLMChain
 from chinese_text_splitter import ChineseTextSplitter
 import json
 from typing import Dict, List, Tuple
@@ -130,6 +133,54 @@ def init_model(endpoint_name,
         return None
 
 
+def get_session_info(table_name, session_id):
+
+    dynamodb = boto3.resource('dynamodb')
+    table = dynamodb.Table(table_name)
+    
+    session_result = ""
+    response = table.get_item(Key={'session-id': session_id})
+    if "Item" in response.keys():
+        session_result = json.loads(response["Item"]["content"])
+    else:
+        session_result = ""
+
+    return session_result
+    
+    
+def update_session_info(table_name, session_id, question, answer, intention):
+
+    dynamodb = boto3.resource('dynamodb')
+    table = dynamodb.Table(table_name)
+    session_result = ""
+
+    response = table.get_item(Key={'session-id': session_id})
+
+    if "Item" in response.keys():
+        chat_history = json.loads(response["Item"]["content"])
+    else:
+        chat_history = []
+
+    chat_history.append([question, answer, intention])
+    content = json.dumps(chat_history)
+
+    response = table.put_item(
+        Item={
+            'session-id': session_id,
+            'content': content
+        }
+    )
+
+    if "ResponseMetadata" in response.keys():
+        if response["ResponseMetadata"]["HTTPStatusCode"] == 200:
+            update_result = "success"
+        else:
+            update_result = "failed"
+    else:
+        update_result = "failed"
+
+    return update_result
+
 class SmartSearchQA:
     
     def init_cfg(self,
@@ -169,7 +220,7 @@ class SmartSearchQA:
                     loaded_files.append(filepath)
                 except Exception as e:
                     print(e)
-                    print(f"{file} Failed to load successfully")
+                    print(f"{file} Failed to load")
                     return None
             elif os.path.isdir(filepath):
                 docs = []
@@ -182,20 +233,20 @@ class SmartSearchQA:
                         failed_files.append(file)
 
                 if len(failed_files) > 0:
-                    print("The following files failed to load successfully:")
+                    print("The following files failed to load:")
                     for file in failed_files:
                         print(file,end="\n")
         else:
             docs = []
             for file in filepath:
                 try:
-                    print("begin to load file, file:",file,language)
+                    print("begin to load file, file:",file,self.language)
                     docs += load_file(file,self.language)
                     print(f"{file} Loaded successfully")
                     loaded_files.append(file)
                 except Exception as e:
                     print(e)
-                    print(f"{file} Failed to load successfully")
+                    print(f"{file} Failed to load")
         if len(docs) > 0:
             print("The file is loaded and the vector library is being generated")
             if self.vector_store is not None:
@@ -228,7 +279,7 @@ class SmartSearchQA:
         QA_chain.return_source_documents = True
         result = QA_chain({"query": query})
         return result
-        
+
     def get_answer_from_load_qa_chain(self,query,
                                         prompt_template: str = "请根据{context}，回答{question}",
                                         top_k: int = 3):
@@ -237,6 +288,91 @@ class SmartSearchQA:
                                 input_variables=["context", "question"])
 
         chain = load_qa_chain(self.llm, chain_type="stuff", prompt=prompt)
-        docs = self.vector_store.similarity_search(query,k=top_k)
+        docs_with_scores = self.vector_store.similarity_search(query,k=top_k)
+        docs = [doc[0] for doc in docs_with_scores]
         result = chain({"input_documents": docs, "question": query}, return_only_outputs=True)
-        return result,docs
+        return result,docs_with_scores
+
+    def get_summarize(self,texts,
+                        chain_type: str = "stuff",
+                        prompt_template: str = "请根据{text}，总结一段摘要",
+                        combine_prompt_template: str = "请根据{text}，总结一段摘要"
+                        ):
+                            
+        texts = texts.split(';')
+        texts_len = len(texts)
+        print("texts len:",texts_len)
+        
+        PROMPT = PromptTemplate(template=prompt_template, input_variables=["text"])
+        COMBINE_PROMPT = PromptTemplate(template=combine_prompt_template, input_variables=["text"])
+        
+        print('prompt:',PROMPT)
+        
+        if chain_type == "stuff":
+            docs = [Document(page_content=t) for t in texts]
+            chain = load_summarize_chain(self.llm, chain_type="stuff", prompt=PROMPT)
+            result = chain.run(docs)
+            
+        else:
+            new_texts = []
+            num = 20
+            for i in range(0,texts_len,num):
+                if i + num < texts_len:
+                    end = i + num
+                else:
+                    end = texts_len - i
+                if len(texts[i:end]) > 0:
+                    new_texts.append(";".join(texts[i:end]))
+            docs = [Document(page_content=t) for t in new_texts]
+            
+            chain = load_summarize_chain(self.llm, 
+                                         chain_type=chain_type, 
+                                         map_prompt=PROMPT,
+                                         combine_prompt=COMBINE_PROMPT)
+            result = chain({"input_documents": docs}, return_only_outputs=True)
+            result = result['output_text']
+        
+        return result
+
+    def get_chat(self,query,language,table_name,session_id):
+        if language == "chinese":
+            template = """
+            你是一个乐于助人的助手，旨在能够协助完成各种任务，从回答简单的问题到就各种主题提供深入的解释和讨论。助手能够根据收到的人类输入，生成问题回答文本，使其能够参与听起来自然的对话，并提供与手头主题连贯且相关的响应。
+            
+    {history}
+    人类输入: {human_input}
+    助手:"""
+        elif language == "english":
+            template = """
+            Assistant is designed to be able to assist with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model, Assistant is able to generate human-like text based on the input it receives, allowing it to engage in natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
+            
+            {history}
+            Human: {human_input}
+            Assistant:"""
+            
+        prompt = PromptTemplate(
+            input_variables=["history", "human_input"], 
+            template=template
+        )
+        
+        memory = ConversationBufferMemory(return_messages=True)
+        session_info = ""
+        if len(session_id) > 0:
+            session_info = get_session_info(table_name,session_id)
+            if len(session_info) > 0:
+                for item in session_info:
+                    print("session info:",item[0]," ; ",item[1]," ; ",item[2])
+                    if item[2] == "chat":
+                        memory.chat_memory.add_user_message(item[0])
+                        memory.chat_memory.add_ai_message(item[1])
+        
+        chat_chain = LLMChain(
+            llm=self.llm,
+            prompt=prompt, 
+            # verbose=True, 
+            memory=memory,
+        )
+        output = chat_chain.predict(human_input=query)
+        update_session_info(table_name, session_id, query, output, "chat")
+        
+        return output
