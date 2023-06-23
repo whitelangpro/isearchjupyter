@@ -1,3 +1,4 @@
+
 """Wrapper around Sagemaker InvokeEndpoint API."""
 from typing import Any, Dict, List, Optional
 
@@ -191,24 +192,43 @@ class SagemakerEndpointEmbeddings(BaseModel, Embeddings):
         _chunk_size = 1
         append_num = 3
         texts_length = len(texts)
+        emb_texts = []
+        phase_texts = []
         sentences = []
+        
+        for text in texts:
+            text_list = text.split('@@@')
+            if len(text_list) == 2:
+                emb_texts.append(text_list[0])
+                phase_texts.append(text_list[1])
+                
 
         for i in range(0, texts_length, _chunk_size):
             try:
                 #print('ind ',i,',len:',len(texts[i: i+_chunk_size][0]),'text:',texts[i: i+_chunk_size])
-                response = self._embedding_func(list(texts[i: i+_chunk_size]))
-                results.append(response)
-
-                if language == "chinese":
-                    append_num = (texts_length - i) if i + append_num > texts_length else append_num
-                    text_append = ",".join([t for t in texts[i: i + append_num]])
-                    #print('text_append:',text_append)
-                    text_result.append(text_append)
+                
+                if len(phase_texts) > 0 and len(emb_texts) > 0:
+                    response = self._embedding_func(list(emb_texts[i: i+_chunk_size]))
+                    text_result.append(phase_texts[i: i+_chunk_size])
+                    sentences.append(emb_texts[i: i+_chunk_size])
+                
                 else:
-                    text_result.append(texts[i: i+_chunk_size])
-                sentences.append(texts[i: i+_chunk_size])
+                    response = self._embedding_func(list(texts[i: i+_chunk_size]))
+                    sentences.append(texts[i: i+_chunk_size])
+                    if language == 'english':
+                        text_result.append(texts[i: i+_chunk_size])
+
+                    elif language == "chinese":
+                        append_num = (texts_length - i) if i + append_num > texts_length else append_num
+                        text_append = ",".join([t for t in texts[i: i + append_num]])
+                        text_result.append(text_append)
+  
+                if language == 'chinese':
+                    results.append(response[0])
+                else:
+                    results.extend(response)
                 metadatas_result.append(metadatas[i: i+_chunk_size][0])
- 
+                
             except Exception as e:
                 print("Embedding Error:",e)
 
@@ -223,4 +243,4 @@ class SagemakerEndpointEmbeddings(BaseModel, Embeddings):
         Returns:
             Embeddings for the text.
         """
-        return self._embedding_func([text])
+        return self._embedding_func([text])[0]
