@@ -1,35 +1,20 @@
-## SageMaker Stable Diffusion Quick Kit
+## SageMaker Notebook Deployment Script
 
-SageMaker Stable Diffusion Quick Kit is an asset to help our customers launch stable diffusion models services on Amazon Sagemaker or Amazon EKS.
-
-
-
-![architecture](./images/architecture.png)
+This is a repository for deploy LLM for smart search solution
 
 
 
 **This project  include :** 
 
-* Huggingface diffusers (StableDiffusionPipeline) migrate to Sagemaker Endpoint 
-* Origin Stable diffusion model(ckpt) migrate to SageMaker Endpoint 
-
-* Dreambooth fine tuning  migrate to Sagemaker trainning job 
-
-* Lambda script (inference api)
-
-* A simple UI (temporary name: PingAI )
-
-* SageMaker BYOC Dockerfile
-
-* Workshop gudie doc 
-
-* CDK provisioning script 
+* Embedding model deploy to Sagemaker Endpoint 
+* LLM model deploy to SageMaker Endpoint 
+* Data load script for OpenSearch 
 
   
 
 **Not include:**
 
-* Stable diffusion pre-train model
+* pre-train model
 
 * Any  public docker image 
 
