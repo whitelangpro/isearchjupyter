@@ -227,11 +227,10 @@ class SmartSearchQA:
                     pre_title = ""
                     for i in range(len(metadatas)):
                         text = texts[i]
+                        # print('text:',text)
                         metadata = dict(metadatas[i])
                         row = int(metadata['row'])
                         title=''
-                        if text.find('title') >= 0 and text.find('content') >= 0:
-                            title = text.split('title:')[1].split('content:')[0].strip()
 
                         if i == 0:
                             pre_metadata = metadata
@@ -282,8 +281,8 @@ class SmartSearchQA:
                             new_metadatas.append(pre_metadata)
                            
                 else:
-                    new_texts = min_texts
-                    new_metadatas = min_metadatas
+                    new_texts = texts
+                    new_metadatas = metadatas
                 
                 ids = self.vector_store.add_texts(new_texts, new_metadatas, bulk_size=bulk_size, language=self.language)
                 return loaded_files
