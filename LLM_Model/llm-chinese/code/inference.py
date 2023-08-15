@@ -34,7 +34,7 @@ from torch import autocast
 from transformers import AutoTokenizer, AutoModel
 
 
-LLM_NAME = ""
+LLM_NAME = "THUDM/chatglm2-6b"
 
 
 
